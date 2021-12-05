@@ -1,0 +1,104 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+This markdown file contains work for the Coursera week 4 machine learning
+course project.
+
+Data files containing observations from 6 individuals performing weightlifting
+exercises both correctly and incorrectly are collected for analysis.   Details
+of the data are posted here: http://groupware.les.inf.puc-rio.br/har but 
+unsurprisingly for this course, I cannot get the webpage to load.
+
+This block will load the training and test data matrices
+```{r}
+library(tidyverse)
+training_url = 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+testing_url = 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+
+training = read.csv(training_url, sep=",") 
+testing = read.csv(testing_url, sep=",")
+
+#summary(training)
+#summary(testing)
+```
+
+A quick look into the data to see how many dimensions are present.
+The training and testing data both have 160 variables.  This is a lot of 
+measurements.  Perhaps some of these have 0 variance, or don't provide any
+unique information.   60 of the 160 variables are candidates for near-zero 
+variance identified by caret.
+
+Remove the X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp 
+variables as they should not be used for predicting if a movement is correct.
+```{r}
+library(caret)
+library(tidyverse)
+dim(training)
+nzv <- nearZeroVar(training)
+training <- training[, -nzv]
+dim(training)
+
+dim(testing)
+testing = testing[, -nzv]
+dim(testing)
+
+training = training %>% select(-X, -user_name, -raw_timestamp_part_1, 
+                               -raw_timestamp_part_2, -cvtd_timestamp)
+
+testing = testing %>% select(-X, -user_name, -raw_timestamp_part_1, 
+                               -raw_timestamp_part_2, -cvtd_timestamp)
+
+```
+
+There are many NAs in this matrix.  After removing columns with more
+than 20% NAs, there are no NAs remaining in the training dataset.
+```{r}
+table(is.na(training))
+
+#fraction of values per column in the training matrix that are 80%+ NA 
+few_enough_NAs = colMeans(is.na(training)) < 0.2
+training = training[ ,few_enough_NAs]
+testing = testing[ ,few_enough_NAs]
+
+table(is.na(training))
+```
+
+Reformat columns to work in caret. Change chr to factors.
+Accurary using "rpart" was only 0.4981, however accuracy using random forest was
+1 (perfect accuracy) on the training set.   When evaluated on the held out samples
+the accuracy was estimated to be 0.9992.
+
+Out of sample error is estimated to be very low (<1%).   We showed above that
+using the training data we achieved accuracy above 0.999, but we cannot be sure
+that processing a new dataset will perform as ideally.
+```{r}
+set.seed(12345)
+training$classe = as.factor(training$classe)
+
+sub_train_keep = createDataPartition(y=training$classe, p=0.7, list=FALSE)
+sub_train = training[sub_train_keep, ]
+sub_test = training[-sub_train_keep, ]
+
+model = train(classe ~ ., method="rpart", data=sub_train)
+prediction = predict(model, sub_train)
+confusionMatrix(reference = sub_train$classe, data=prediction)
+
+model = train(classe ~ ., method="rf", data=sub_train)
+prediction = predict(model, sub_train)
+confusionMatrix(reference = sub_train$classe, data=prediction)
+
+#RF works really well - evaluate it against the sub_test data
+prediction = predict(model, sub_test)
+confusionMatrix(reference = sub_test$classe, data=prediction)
+```
+
+Using our high accuracy RF model, apply it to the test data to predict the 
+response
+```{r}
+final_prediction = predict(model, testing)
+final_prediction
+```
